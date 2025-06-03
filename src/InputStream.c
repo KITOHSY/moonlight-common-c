@@ -89,6 +89,7 @@ typedef struct _PACKET_HOLDER {
         SS_CONTROLLER_MOTION_PACKET controllerMotion;
         SS_CONTROLLER_BATTERY_PACKET controllerBattery;
         NV_UNICODE_PACKET unicode;
+        NV_FILE_TRANSFER_PACKET fileTransfer;
     } packet;
 } PACKET_HOLDER, *PPACKET_HOLDER;
 
@@ -749,7 +750,49 @@ int stopInputStream(void) {
     return 0;
 }
 
-// Test
+// Send file to server
+int LiSendFileToServer(const char *filePath) {
+    FILE *fp = NULL;
+    errno_t ferr = fopen_s(&fp, filePath, "rb");
+    if (ferr != 0 || fp == NULL) return -1;
+
+    fseek(fp, 0, SEEK_END);
+    uint32_t totalSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    uint32_t offset = 0;
+    uint32_t fileId = rand(); // random Id of file, to distinguish
+    int err = 0;
+
+    while (offset < totalSize) {
+        PPACKET_HOLDER holder = allocatePacketHolder(sizeof(NV_FILE_TRANSFER_PACKET) - sizeof(NV_INPUT_HEADER));
+        if (!holder) { err = -2; break; }
+
+        uint32_t chunkSize = (totalSize - offset) > FILE_CHUNK_MAX_SIZE ? FILE_CHUNK_MAX_SIZE : (totalSize - offset);
+        fread(holder->packet.fileTransfer.data, 1, chunkSize, fp);
+
+        holder->channelId = CTRL_CHANNEL_GENERIC;
+        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
+        holder->packet.fileTransfer.header.size = BE32(sizeof(NV_FILE_TRANSFER_PACKET) - sizeof(uint32_t) - (FILE_CHUNK_MAX_SIZE - chunkSize));
+        holder->packet.fileTransfer.header.magic = LE32(FILE_TRANSFER_MAGIC);
+        holder->packet.fileTransfer.fileId = BE32(fileId);
+        holder->packet.fileTransfer.totalSize = BE32(totalSize);
+        holder->packet.fileTransfer.offset = BE32(offset);
+        holder->packet.fileTransfer.chunkSize = BE32(chunkSize);
+
+        int qerr = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
+        if (qerr != LBQ_SUCCESS) {
+            freePacketHolder(holder);
+            err = -3;
+            break;
+        }
+
+        offset += chunkSize;
+    }
+
+    fclose(fp);
+    return err;
+}
 
 // Send a mouse move event to the streaming machine
 int LiSendMouseMoveEvent(short deltaX, short deltaY) {
