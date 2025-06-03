@@ -749,6 +749,8 @@ int stopInputStream(void) {
     return 0;
 }
 
+// Test
+
 // Send a mouse move event to the streaming machine
 int LiSendMouseMoveEvent(short deltaX, short deltaY) {
     PPACKET_HOLDER holder;
