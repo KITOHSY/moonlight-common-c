@@ -1,5 +1,6 @@
 #include "Limelight-internal.h"
 
+
 static SOCKET inputSock = INVALID_SOCKET;
 static unsigned char currentAesIv[16];
 static bool initialized;
@@ -750,11 +751,21 @@ int stopInputStream(void) {
     return 0;
 }
 
+
+
 // Send file to server
-int LiSendFileToServer(const char *filePath) {
+int LiSendFileToServer(const char* filePath) {
+
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, filePath, -1, NULL, 0);
+    if (wlen == 0) return -1;
+    wchar_t *wFilePath = (wchar_t*)malloc(wlen * sizeof(wchar_t));
+    MultiByteToWideChar(CP_UTF8, 0, filePath, -1, wFilePath, wlen);
+
     FILE *fp = NULL;
-    errno_t ferr = fopen_s(&fp, filePath, "rb");
-    if (ferr != 0 || fp == NULL) return -1;
+    errno_t ferr = _wfopen_s(&fp, wFilePath, L"rb");
+    free(wFilePath);
+
+    if (ferr != 0 || fp == NULL) return -2;
 
     fseek(fp, 0, SEEK_END);
     uint32_t totalSize = ftell(fp);
