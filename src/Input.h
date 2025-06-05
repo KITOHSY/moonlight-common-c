@@ -36,6 +36,17 @@ typedef struct _NV_UNICODE_PACKET {
     char text[UTF8_TEXT_EVENT_MAX_COUNT];
 } NV_UNICODE_PACKET, *PNV_UNICODE_PACKET;
 
+#define FILE_TRANSFER_MAGIC 0x1234ABCD
+#define FILE_CHUNK_MAX_SIZE 1024
+typedef struct _NV_FILE_TRANSFER_PACKET {
+    NV_INPUT_HEADER header;
+    uint32_t fileId;
+    uint32_t totalSize;
+    uint32_t offset;
+    uint32_t chunkSize;
+    uint8_t  data[FILE_CHUNK_MAX_SIZE];
+} NV_FILE_TRANSFER_PACKET, *PNV_FILE_TRANSFER_PACKET;
+
 #define MOUSE_MOVE_REL_MAGIC 0x00000006
 #define MOUSE_MOVE_REL_MAGIC_GEN5 0x00000007
 typedef struct _NV_REL_MOUSE_MOVE_PACKET {
