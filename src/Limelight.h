@@ -965,6 +965,8 @@ void LiRequestIdrFrame(void);
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
 uint32_t LiGetHostFeatureFlags(void);
 
+int LiSendFile(const char* filePath);
+
 #ifdef __cplusplus
 }
 #endif

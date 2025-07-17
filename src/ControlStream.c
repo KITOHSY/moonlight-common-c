@@ -665,6 +665,135 @@ static bool isPacketSentWaitingForAck(ENetPacket* packet) {
     return false;
 }
 
+static bool sendFileEnet(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+    ENetPacket* enetPacket;
+    int err;
+
+    LC_ASSERT(AppVersionQuad[0] >= 5);
+
+    // Only send reliable packets to GFE
+    if (!IS_SUNSHINE()) {
+        flags = ENET_PACKET_FLAG_RELIABLE;
+    }
+
+    if (encryptedControlStream) {
+        PNVCTL_ENCRYPTED_PACKET_HEADER encPacket;
+        PNVCTL_ENET_PACKET_HEADER_V2 packet;
+        char tempBuffer[256];
+
+        enetPacket = enet_packet_create(NULL,
+                                        sizeof(*encPacket) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen,
+                                        flags);
+        if (enetPacket == NULL) {
+            return false;
+        }
+
+        // We (ab)use the enetMutex to protect currentEnetSequenceNumber and the cipherContext
+        // used inside encryptControlMessage().
+        PltLockMutex(&enetMutex);
+
+        encPacket = (PNVCTL_ENCRYPTED_PACKET_HEADER)enetPacket->data;
+        encPacket->encryptedHeaderType = 0x0001;
+        encPacket->length = sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen;
+        encPacket->seq = currentEnetSequenceNumber++;
+
+        // Construct the plaintext data for encryption
+        LC_ASSERT(sizeof(*packet) + paylen < sizeof(tempBuffer));
+        packet = (PNVCTL_ENET_PACKET_HEADER_V2)tempBuffer;
+        packet->type = ptype;
+        packet->payloadLength = paylen;
+        memcpy(&packet[1], payload, paylen);
+
+        // Encrypt the data into the final packet (and byteswap for BE machines)
+        if (!encryptControlMessage(encPacket, packet)) {
+            Limelog("Failed to encrypt control stream message\n");
+            enet_packet_destroy(enetPacket);
+            PltUnlockMutex(&enetMutex);
+            return false;
+        }
+
+        // enetMutex still locked here
+    }
+    else {
+        PNVCTL_ENET_PACKET_HEADER_V1 packet;
+        enetPacket = enet_packet_create(NULL, sizeof(*packet) + paylen,
+                                        flags);
+        if (enetPacket == NULL) {
+            return false;
+        }
+
+        packet = (PNVCTL_ENET_PACKET_HEADER_V1)enetPacket->data;
+        packet->type = LE16(ptype);
+        memcpy(&packet[1], payload, paylen);
+
+        PltLockMutex(&enetMutex);
+    }
+
+    volatile bool packetFreed = false;
+
+    // Set a callback to use to let us know if the packet has been freed.
+    // Freeing can only happen when the packet is acked or send fails.
+    enetPacket->userData = (void*)&packetFreed;
+    enetPacket->freeCallback = enetPacketFreeCb;
+
+    // Always use channel 0 for GFE and if the requested channel exceeds
+    // the peer's supported channel count.
+    if (!IS_SUNSHINE() || channelId >= peer->channelCount) {
+        channelId = 0;
+    }
+
+    // Queue the packet to be sent
+    err = enet_peer_send(peer, channelId, enetPacket);
+    bool packetQueued = (err == 0);
+
+    // If there is no more data coming soon, send the packet now
+    if (!moreData && packetQueued) {
+        err = enet_host_service(client, NULL, 0);
+
+        // Wait until the packet is actually sent to provide backpressure on senders
+        if (flags & ENET_PACKET_FLAG_RELIABLE) {
+            // Don't wait longer than 10 milliseconds to avoid blocking callers for too long
+            for (int i = 0; err >= 0 && i < 10; i++) {
+                // Break on disconnected, acked/freed, or sent (pending ack).
+                if (peer->state != ENET_PEER_STATE_CONNECTED || packetFreed || isPacketSentWaitingForAck(enetPacket)) {
+                    break;
+                }
+
+                // Release the lock before sleeping to allow another thread to send/receive
+                PltUnlockMutex(&enetMutex);
+                PltSleepMs(1);
+                PltLockMutex(&enetMutex);
+
+                // Try to send the packet again
+                err = enet_host_service(client, NULL, 0);
+            }
+
+            if (err >= 0 && peer->state == ENET_PEER_STATE_CONNECTED && !packetFreed && !isPacketSentWaitingForAck(enetPacket)) {
+                Limelog("Control message took over 10 ms to send (net latency: %u ms | packet loss: %f%%)\n",
+                        peer->roundTripTime, peer->packetLoss / (float)ENET_PEER_PACKET_LOSS_SCALE);
+            }
+        }
+    }
+
+    // Remove the free callback now that the packet was sent
+    if (!packetFreed) {
+        enetPacket->userData = NULL;
+        enetPacket->freeCallback = NULL;
+    }
+
+    PltUnlockMutex(&enetMutex);
+
+    if (err < 0) {
+        Limelog("Failed to send ENet control packet\n");
+        if (!packetQueued) {
+            enet_packet_destroy(enetPacket);
+        }
+        return false;
+    }
+
+    return true;
+}
+
 static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
     ENetPacket* enetPacket;
     int err;

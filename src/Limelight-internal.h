@@ -7,6 +7,7 @@
 #include "PlatformCrypto.h"
 #include "Video.h"
 #include "Input.h"
+#include "File.h"
 #include "RtpAudioQueue.h"
 #include "RtpVideoQueue.h"
 #include "ByteBuffer.h"

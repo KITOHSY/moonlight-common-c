@@ -1600,3 +1600,41 @@ int LiSendControllerBatteryEvent(uint8_t controllerNumber, uint8_t batteryState,
 
     return err;
 }
+
+// Send a file to the streaming machine
+/*int LiSendFile(const char* filePath) {
+
+    sendInputPacket()
+
+
+    PPACKET_HOLDER holder;
+    int err;
+
+    if (!initialized) {
+        return -2;
+    }
+
+    holder = allocatePacketHolder(0);
+    if (holder == NULL) {
+        return -1;
+    }
+
+    holder->channelId = CTRL_CHANNEL_MOUSE;
+    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
+    holder->packet.mouseButton.header.size = BE32(sizeof(NV_MOUSE_BUTTON_PACKET) - sizeof(uint32_t));
+    holder->packet.mouseButton.header.magic = (uint8_t)action;
+    if (AppVersionQuad[0] >= 5) {
+        holder->packet.mouseButton.header.magic++;
+    }
+    holder->packet.mouseButton.header.magic = LE32(holder->packet.mouseButton.header.magic);
+    holder->packet.mouseButton.button = (uint8_t)button;
+
+    err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
+    if (err != LBQ_SUCCESS) {
+        LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
+        Limelog("Input queue reached maximum size limit\n");
+        freePacketHolder(holder);
+    }
+
+    return err;
+}*/
